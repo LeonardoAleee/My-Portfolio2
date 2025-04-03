@@ -2,7 +2,7 @@
   import projects from "$lib/projects.json";
   import Project from "$lib/Project.svelte";
 
-  // let profileData = fetch("https://api.github.com/users/juan1t0");
+  // let profileData = fetch("https://api.github.com/users/LeonardoAleee");
 </script>
 
 <svelte:head>
@@ -17,7 +17,7 @@
     Mike's world gets turned upside down when a human girl (nicknamed "Boo") enters the monster world.
     Teaming up with Sulley to return Boo to her world, Mike uncovers a company conspiracy and helps solve an energy crisis that plagues the entire city of Monstropolis
 </p>
-{#await fetch("https://api.github.com/users/juan1t0")}
+{#await fetch("https://api.github.com/users/LeonardoAleee")}
   <span>Loading...</span>
 {:then response}
   {#await response.json()}
