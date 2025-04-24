@@ -76,7 +76,7 @@ $: maxDate = d3.max(commits.map(d => d.date));
 $: maxDatePlusOne = new Date(maxDate);
 $: maxDatePlusOne.setDate(maxDatePlusOne.getDate() + 1);
 
-$: timeScale = d3.scaleTime().domain([minDate,maxDate]).range([0,100]);
+$: timeScale = d3.scaleTime().domain([minDate, maxDatePlusOne]).range([0,100]);
 $: commitMaxTime = timeScale.invert(commitProgress);
 
 $: filteredCommits = commits.filter(commit => commit.datetime <= commitMaxTime);
