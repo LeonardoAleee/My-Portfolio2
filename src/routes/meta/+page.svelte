@@ -1,6 +1,7 @@
 <script>
 import * as d3 from "d3";
 import { onMount } from "svelte";
+import Bar from '$lib/Bar.svelte';
 
 let data = [];
 let commits = [];
@@ -10,6 +11,7 @@ let xAxis, yAxis;
 let yAxisGridlines;
 let hoveredIndex = -1;
 let cursor = {x: 0, y: 0};
+let clickedCommits = [];
 
 $: hoveredCommit = commits[hoveredIndex] ?? hoveredCommit ?? {};
 
@@ -31,32 +33,40 @@ onMount(async () => {
         date: new Date(row.date + "T00:00" + row.timezone),
         datetime: new Date(row.datetime)
     }));
-
+    
     commits = d3.groups(data, d => d.commit).map(([commit, lines]) => {
-    let first = lines[0];
-    let {author, date, time, timezone, datetime} = first;
-    let ret = {
-        id: commit,
-        url: "https://github.com/USERNAME/REPO/commit/" + commit,
-        author, date, time, timezone, datetime,
-        hourFrac: datetime.getHours() + datetime.getMinutes() / 60,
-        totalLines: lines.length
-    };
+        let first = lines[0];
+        let {author, date, time, timezone, datetime} = first;
+        let ret = {
+            id: commit,
+            url: "https://github.com/USERNAME/REPO/commit/" + commit,
+            author, date, time, timezone, datetime,
+            hourFrac: datetime.getHours() + datetime.getMinutes() / 60,
+            totalLines: lines.length
+        };
 
-    // Like ret.lines = lines
-    // but non-enumerable so it doesn’t show up in JSON.stringify
-    Object.defineProperty(ret, "lines", {
-        value: lines,
-        configurable: true,
-        writable: true,
-        enumerable: false,
+        // Like ret.lines = lines
+        // but non-enumerable so it doesn’t show up in JSON.stringify
+        Object.defineProperty(ret, "lines", {
+            value: lines,
+            configurable: true,
+            writable: true,
+            enumerable: false,
+        });
+
+        return ret;
     });
-
-    return ret;
-    });
-
-    console.log(commits)
+    commits = d3.sort(commits, d => -d.totalLines);
 });
+
+$: allTypes = Array.from(new Set(data.map(d => d.type)));
+$: selectedLines = (clickedCommits.length > 0 ? clickedCommits : commits).flatMap(d => d.lines);
+$: selectedCounts = d3.rollup(
+    selectedLines,
+    v => v.length,
+    d => d.type
+);
+$: languageBreakdown = allTypes.map(type => [type, selectedCounts.get(type) || 0]);
 
 $: minDate = d3.min(commits.map(d => d.date));
 $: maxDate = d3.max(commits.map(d => d.date));
@@ -64,13 +74,18 @@ $: maxDatePlusOne = new Date(maxDate);
 $: maxDatePlusOne.setDate(maxDatePlusOne.getDate() + 1);
 
 $: xScale = d3.scaleTime()
-              .domain([minDate, maxDatePlusOne])
-              .range([usableArea.left, usableArea.right])
-              .nice();
+                .domain([minDate, maxDatePlusOne])
+                .range([usableArea.left, usableArea.right])
+                .nice();
 
 $: yScale = d3.scaleLinear()
-              .domain([24, 0])
-              .range([usableArea.bottom, usableArea.top]);
+                .domain([24, 0])
+                .range([usableArea.bottom, usableArea.top]);
+
+$: rScale = d3.scaleSqrt()
+                .domain(d3.extent(commits.map(d=>d.totalLines)))
+                .range([2, 30]);
+
 
 $: {
     d3.select(xAxis).call(d3.axisBottom(xScale));
@@ -80,11 +95,32 @@ $: {
 $: {
     d3.select(yAxisGridlines).call(
         d3.axisLeft(yScale)
-          .tickFormat("")
-          .tickSize(-usableArea.width)
+            .tickFormat("")
+            .tickSize(-usableArea.width)
     );
 }
- 
+
+function dotInteraction (index, evt) {
+    if (evt.type === "mouseenter") {
+        hoveredIndex = index;
+        cursor = {x: evt.x, y: evt.y};
+    }
+    else if (evt.type === "mouseleave") {
+        hoveredIndex = -1
+    }
+    else if (evt.type === "click") {
+    let commit = commits[index]
+    if (!clickedCommits.includes(commit)) {
+        // Add the commit to the clickedCommits array
+        clickedCommits = [...clickedCommits, commit];
+    }
+    else {
+            // Remove the commit from the array
+            clickedCommits = clickedCommits.filter(c => c !== commit);
+    }
+}
+}
+
 </script>
 <svelte:head>
 <title>Meta</title>
@@ -105,8 +141,6 @@ $: {
 
     <dt>Time</dt>
     <dd>{ hoveredCommit.time }</dd>
-
-    <!-- Add: Time, author, lines edited -->
 </dl>
 
 <svg viewBox="0 0 {width} {height}">
@@ -116,19 +150,21 @@ $: {
     <g class="dots">
         {#each commits as commit, index }
             <circle
-                on:mouseenter={evt => {
-                    hoveredIndex = index;
-                    cursor = {x: evt.x, y: evt.y};
-                }}
-                on:mouseleave={evt => hoveredIndex = -1}
+                class:selected={ clickedCommits.includes(commit) }
+                on:mouseenter={evt => dotInteraction(index, evt)}
+                on:mouseleave={evt => dotInteraction(index, evt)}
+                on:click={ evt => dotInteraction(index, evt) }
                 cx={ xScale(commit.datetime) }
                 cy={ yScale(commit.hourFrac) }
-                r="5"
+                r={ rScale(commit.totalLines) }
                 fill="steelblue"
+                fill-opacity=0.5
             />
         {/each}
-    </g>     
+    </g>
 </svg>
+
+<Bar data={languageBreakdown} width={width} />
 
 <section>
     <h2>Summary</h2>
@@ -143,34 +179,35 @@ $: {
 </section>
 
 <style>
-dl{
-    display: grid;
-    grid-template-columns: auto;
-}
-dt{
-    grid-row: 1;
-    font-family: inherit;
-    font-weight: bold;
-    color: var(--border-gray);
-    text-transform: uppercase;
-}
-dd{
-    font-family: inherit;
-    font-weight: bold;
-}
-section{
-    border-width:0.15em;
-    border-style:solid;
-    border-color:var(--border-gray);
-    padding-left: 1em;
-    padding-right: 1em;
-}
-svg {
+    dl{
+        display: grid;
+        grid-template-columns: auto;
+    }
+    dt{
+        grid-row: 1;
+        font-family: inherit;
+        font-weight: bold;
+        color: var(--border-gray);
+        text-transform: uppercase;
+    }
+    dd{
+        font-family: inherit;
+        font-weight: bold;
+    }
+    section{
+        border-width:0.15em;
+        border-style:solid;
+        border-color:var(--border-gray);
+        padding-left: 1em;
+        padding-right: 1em;
+    }
+    svg {
         overflow: visible;
     }
     .gridlines {
-    stroke-opacity: .2;
-}
+        stroke-opacity: .2;
+    }
+
 .info{
     display: grid;
     margin:0;
@@ -190,6 +227,7 @@ svg {
     }
 }
 
+
 .info dt{
     grid-column:1;
     grid-row:auto;
@@ -205,10 +243,10 @@ svg {
     position: fixed;
     top: 1em;
     left: 1em;
-} 
+}
+
 circle {
     transition: 200ms;
-    
     transform-origin: center;
     transform-box: fill-box;
 
@@ -217,4 +255,10 @@ circle {
     }
 }
 
+.selected {
+    fill: var(--color-accent);
+}
+
 </style>
+    
+    
