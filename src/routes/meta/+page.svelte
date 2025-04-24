@@ -12,8 +12,10 @@ let yAxisGridlines;
 let hoveredIndex = -1;
 let cursor = {x: 0, y: 0};
 let clickedCommits = [];
+let commitProgress = 100;
 
-$: hoveredCommit = commits[hoveredIndex] ?? hoveredCommit ?? {};
+
+$: hoveredCommit = filteredCommits[hoveredIndex] ?? hoveredCommit ?? {};
 
 let usableArea = {
     top: margin.top,
@@ -59,8 +61,9 @@ onMount(async () => {
     commits = d3.sort(commits, d => -d.totalLines);
 });
 
+$: filteredLines = data.filter(d => d.datetime <= commitMaxTime);
 $: allTypes = Array.from(new Set(data.map(d => d.type)));
-$: selectedLines = (clickedCommits.length > 0 ? clickedCommits : commits).flatMap(d => d.lines);
+$: selectedLines = (clickedCommits.length > 0 ? clickedCommits : filteredCommits).flatMap(d => d.lines);
 $: selectedCounts = d3.rollup(
     selectedLines,
     v => v.length,
@@ -73,8 +76,18 @@ $: maxDate = d3.max(commits.map(d => d.date));
 $: maxDatePlusOne = new Date(maxDate);
 $: maxDatePlusOne.setDate(maxDatePlusOne.getDate() + 1);
 
+$: timeScale = d3.scaleTime().domain([minDate,maxDate]).range([0,100]);
+$: commitMaxTime = timeScale.invert(commitProgress);
+
+$: filteredCommits = commits.filter(commit => commit.datetime <= commitMaxTime);
+
+$: filteredMinDate = d3.min(filteredCommits.map(d => d.date));
+$: filteredMaxDate = d3.max(filteredCommits.map(d => d.date));
+$: filteredMaxDatePlusOne = new Date(filteredMaxDate);
+$: filteredMaxDatePlusOne.setDate(filteredMaxDatePlusOne.getDate() + 1);
+
 $: xScale = d3.scaleTime()
-                .domain([minDate, maxDatePlusOne])
+                .domain([filteredMinDate, filteredMaxDatePlusOne])
                 .range([usableArea.left, usableArea.right])
                 .nice();
 
@@ -85,7 +98,6 @@ $: yScale = d3.scaleLinear()
 $: rScale = d3.scaleSqrt()
                 .domain(d3.extent(commits.map(d=>d.totalLines)))
                 .range([2, 30]);
-
 
 $: {
     d3.select(xAxis).call(d3.axisBottom(xScale));
@@ -109,7 +121,7 @@ function dotInteraction (index, evt) {
         hoveredIndex = -1
     }
     else if (evt.type === "click") {
-    let commit = commits[index]
+    let commit = filteredCommits[index]
     if (!clickedCommits.includes(commit)) {
         // Add the commit to the clickedCommits array
         clickedCommits = [...clickedCommits, commit];
@@ -143,12 +155,21 @@ function dotInteraction (index, evt) {
     <dd>{ hoveredCommit.time }</dd>
 </dl>
 
+<div class="slider-container">
+    <div class="slider">
+        <label for="slider">Show commits until:</label>
+        <input type="range" id="slider" name="slider" min=0 max=100 bind:value={commitProgress}/>
+    </div>
+    <time class="time-label">{commitMaxTime.toLocaleString()}</time>
+</div>
+
+
 <svg viewBox="0 0 {width} {height}">
     <g transform="translate(0, {usableArea.bottom})" bind:this={xAxis} />
     <g transform="translate({usableArea.left}, 0)" bind:this={yAxis} />
     <g class="gridlines" transform="translate({usableArea.left}, 0)" bind:this={yAxisGridlines} />
     <g class="dots">
-        {#each commits as commit, index }
+        {#each filteredCommits as commit, index (commit.id) }
             <circle
                 class:selected={ clickedCommits.includes(commit) }
                 on:mouseenter={evt => dotInteraction(index, evt)}
@@ -170,11 +191,11 @@ function dotInteraction (index, evt) {
     <h2>Summary</h2>
     <dl class="stats">
     <dt>Total <abbr title="Lines of code">LOC</abbr></dt>
-    <dd>{data.length}</dd>
+    <dd>{filteredLines.length}</dd>
     <dt>Files</dt>
-    <dd>{d3.groups(data, d => d.file).length}</dd>
+    <dd>{d3.groups(filteredLines, d => d.file).length}</dd>
     <dt>Commits</dt>
-    <dd>{d3.groups(data, d => d.commit).length}</dd>
+    <dd>{d3.groups(filteredLines, d => d.commit).length}</dd>
     </dl>
 </section>
 
@@ -253,10 +274,28 @@ circle {
     &:hover {
         transform: scale(1.5);
     }
+
+    @starting-style {
+	    r: 0;
+}
 }
 
 .selected {
     fill: var(--color-accent);
+}
+
+.slider-container{
+	display:grid;
+}
+.slider{
+	display: flex;
+}
+#slider{
+	flex:1;
+}
+.time-label{
+	font-size: 0.75em;
+	text-align: right;
 }
 
 </style>
